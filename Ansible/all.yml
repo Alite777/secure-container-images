@@ -11,10 +11,18 @@
   roles:
     - k3s_setup
 
-- name: k3s startup
+- name: k3s Startup
   tags:
     - k3s_startup
   hosts: control_plane
   become: true
   roles:
     - k3s_startup
+
+- name: Helm Installation
+  tags:
+    - helm_installation
+  hosts: control_plane
+  become: true
+  roles:
+    - helm_installation
