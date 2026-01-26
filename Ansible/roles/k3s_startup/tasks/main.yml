@@ -1,0 +1,41 @@
+---  
+- name: Install required Python packages for Kubernetes modules
+  package:
+    name:
+      - python3-kubernetes
+      - python3-yaml
+    state: present
+
+# -------------------------------------------------------------------
+# k3s startup
+- name: Wait for k3s to be ready
+  wait_for:
+    path: /etc/rancher/k3s/k3s.yaml
+    state: present
+    timeout: 300
+
+- name: Set KUBECONFIG environment variable for Helm
+  lineinfile:
+    path: /etc/environment
+    line: "KUBECONFIG=/etc/rancher/k3s/k3s.yaml"
+    create: yes
+  register: kubeconfig_set
+
+- name: Create .kube directory if it doesn't exist
+  file:
+    path: /home/{{ ansible_user }}/.kube
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: yes
+
+- name: Copy k3s kubeconfig to user's home directory
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /home/{{ ansible_user }}/.kube/config
+    remote_src: yes
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+  become: yes
