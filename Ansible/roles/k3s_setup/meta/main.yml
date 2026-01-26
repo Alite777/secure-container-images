@@ -1,0 +1,5 @@
+---
+dependencies:
+  - role: xanmanning.k3s
+  - role: geerlingguy.pip
+  - role: geerlingguy.docker

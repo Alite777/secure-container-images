@@ -1,0 +1,5 @@
+---
+roles:
+  - geerlingguy.docker
+  - xanmanning.k3s
+  - geerlingguy.pip

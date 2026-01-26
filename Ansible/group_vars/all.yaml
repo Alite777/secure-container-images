@@ -1,0 +1,13 @@
+---
+k3s_build_cluster: true
+k3s_registration_address: "10.27.1.137"
+k3s_token: "supersecuretokenvalue187"
+k3s_server:
+  disable:
+    - traefik
+  write_kubeconfig_mode: "644"
+
+k3s_agent:
+  node-label:
+    - "node-type=worker"
+

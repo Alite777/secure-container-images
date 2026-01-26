@@ -1,0 +1,12 @@
+---
+- name: k3s Setup
+  tags:
+    - k3s_setup
+  hosts: k3s_servers
+  vars:
+    pip_install_packages:
+      - name: docker
+    k3s_build_cluster: true
+  become: true
+  roles:
+    - k3s_setup
