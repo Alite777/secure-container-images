@@ -1,0 +1,82 @@
+# Argo CD
+- name: Add Argo Helm repository
+  kubernetes.core.helm_repository:
+    name: argo
+    repo_url: https://argoproj.github.io/argo-helm
+  run_once: true
+
+- name: Install / upgrade Argo CD via Helm
+  kubernetes.core.helm:
+    name: argocd
+    chart_ref: argo/argo-cd
+    chart_version: "8.2.0"
+    release_namespace: cd
+    create_namespace: true
+    update_repo_cache: true
+    wait: true
+    state: present
+    values:
+      server:
+        service: { type: ClusterIP }
+        ingress: { enabled: false }
+      applicationSet: { enabled: true }
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  run_once: true
+
+- name: Wait for argocd-server readiness
+  kubernetes.core.k8s_info:
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+    api_version: apps/v1
+    kind: Deployment
+    namespace: cd
+    name: argocd-server
+  run_once: true
+
+# -------------------------------------------------------------------
+# Repo-creds Secret – SSH key comes from Ansible Vault variable
+- name: Create repo credential so Argo CD can fetch the private repo
+  kubernetes.core.k8s:
+    namespace: cd
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: repo-creds-secure-container-images
+        labels: { argocd.argoproj.io/secret-type: repo-creds }
+      type: Opaque
+      stringData:
+        url: "{{ git_repo_url }}"
+        sshPrivateKey: "{{ argocd_git_ssh_key }}"
+  run_once: true
+
+# -------------------------------------------------------------------
+# Root "app-of-apps" Application - Bootstrap Argo CD
+- name: Bootstrap Argo CD with App-of-apps pattern from Git repository
+  kubernetes.core.k8s:
+    namespace: cd
+    definition:
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: argocd-app-of-apps
+        namespace: cd
+      spec:
+        project: default
+        source:
+          repoURL: "{{ git_repo_url }}"
+          targetRevision: "{{ git_repo_revision }}"
+          path: cd/argocd-app-of-apps
+        destination:
+          server: https://kubernetes.default.svc
+          namespace: cd
+        syncPolicy:
+          automated:
+            prune: true
+            selfHeal: true
+          syncOptions:
+            - CreateNamespace=true
+  run_once: true
