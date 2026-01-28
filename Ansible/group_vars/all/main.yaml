@@ -11,5 +11,5 @@ k3s_agent:
   node-label:
     - "node-type=worker"
 
-git_repo_url: "https://github.com/Alite777/Secure_Container_Images"
+git_repo_url: "git@github.com:Alite777/secure-container-images.git"
 git_repo_revision: "dev"

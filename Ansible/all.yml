@@ -26,3 +26,11 @@
   become: true
   roles:
     - helm_installation
+
+- name: Argo CD Setup
+  tags:
+    - argo_cd_setup
+  hosts: control_plane
+  become: true
+  roles:
+    - argo_cd_setup

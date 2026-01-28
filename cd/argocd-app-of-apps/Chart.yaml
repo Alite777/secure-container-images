@@ -1,0 +1,12 @@
+apiVersion: v2
+name: argocd-app-of-apps
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+description: Chart for deploying ArgoCD app-of-apps.
+keywords:
+  - ArgoCD
+  - Config
+  - Application
+sources:
+  - https://github.com/Alite777/secure-container-images
