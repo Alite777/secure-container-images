@@ -80,3 +80,12 @@
           syncOptions:
             - CreateNamespace=true
   run_once: true
+
+# copy kubeconfig to local repo root
+- name: Fetch k3s kubeconfig to local repository root
+  ansible.builtin.fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "{{ playbook_dir }}/../k3s.yaml"
+    flat: true
+    fail_on_missing: true
+  run_once: true
