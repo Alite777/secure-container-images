@@ -1,0 +1,12 @@
+apiVersion: v2
+name: apps-cd
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+description: CD system applications (ArgoCD itself)
+keywords:
+  - ArgoCD
+  - Config
+  - Application
+sources:
+  - https://github.com/Alite777/secure-container-images
