@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: {{ .Values.metadata.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    server: {{ .Values.spec.destination.server }}
+    namespace: {{ .Values.spec.destination.namespace }}
+  project: {{ .Values.spec.project }}
+  source:
+    chart: argo-cd
+    repoURL: https://argoproj.github.io/argo-helm
+    targetRevision: "8.2.0"
+    helm:
+      releaseName: argocd
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m0s
+      limit: 2
