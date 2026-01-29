@@ -6,6 +6,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: cd
   source:
-    repoURL: git@github.com:Alite777/Secure_Container_Images.git
+    repoURL: git@github.com:Alite777/secure-container-images.git
     targetRevision: dev
   project: default
