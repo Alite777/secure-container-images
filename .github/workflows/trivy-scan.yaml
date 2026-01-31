@@ -1,0 +1,98 @@
+name: trivy-scan
+on:
+  pull_request:
+    paths:
+      - 'cd/helm-charts/**' # Only run on changes to helm charts
+  workflow_dispatch:
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      charts: ${{ steps.get-charts.outputs.charts }}
+      has-charts: ${{ steps.get-charts.outputs.has-charts }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history to compare changes
+          
+      - name: Get changed charts
+        id: get-charts
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # For manual runs, scan all charts
+            CHARTS=$(find cd/helm-charts -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          else
+            # For PRs, only scan changed charts
+            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            CHARTS=$(echo "$CHANGED_FILES" | grep '^cd/helm-charts/' | cut -d'/' -f3 | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          fi
+          
+          echo "charts=${CHARTS}" >> $GITHUB_OUTPUT
+          
+          # Check if we have any charts to scan
+          if [ "$CHARTS" = "[]" ] || [ -z "$CHARTS" ]; then
+            echo "has-charts=false" >> $GITHUB_OUTPUT
+            echo "No charts to scan"
+          else
+            echo "has-charts=true" >> $GITHUB_OUTPUT
+            echo "Charts to scan: ${CHARTS}"
+          fi
+
+  trivy:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has-charts == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.detect-changes.outputs.charts) }}
+      fail-fast: false # Continue scanning other charts even if one fails
+    
+    steps:
+      - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
+
+      - name: Install yq
+        uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
+
+      - name: Read image from values.yaml
+        id: image
+        # Extract image repository and tag from Helm chart values.yaml
+        # if tag is not specified, default to 'latest'
+        # Combine them to form the full image reference and save it as an output variable
+        run: |
+          VALUES_FILE="cd/helm-charts/${{ matrix.chart }}/values.yaml"
+          REPO=$(yq e '.image.repository' "$VALUES_FILE")
+          TAG=$(yq e '.image.tag' "$VALUES_FILE")
+          
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            TAG="latest"
+          fi
+          
+          echo "repository=${REPO}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=${REPO}:${TAG}" >> $GITHUB_OUTPUT
+          echo "Scanning image: ${REPO}:${TAG}"
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.image.outputs.image }}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.chart }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1' # Fail the job if critical or high vulnerabilities are found
+          
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() # Upload results even if scan failed
+        with:
+          sarif_file: 'trivy-results-${{ matrix.chart }}.sarif'
+          category: 'trivy-${{ matrix.chart }}'
+          
+      - name: Run Trivy scan (table output for logs)
+        uses: aquasecurity/trivy-action@0.28.0
+        if: always()
+        with:
+          image-ref: ${{ steps.image.outputs.image }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
