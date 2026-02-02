@@ -46,7 +46,13 @@ jobs:
 
   trivy:
     needs: detect-changes
-    runs-on: ubuntu-latest #Select Linux Ubuntu as the runner environment
+    if: needs.detect-changes.outputs.has-charts == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.detect-changes.outputs.charts) }}
+      fail-fast: false # Continue scanning other charts even if one fails
+    
     steps:
       - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
 
