@@ -45,6 +45,7 @@ jobs:
           fi
 
   trivy:
+    needs: detect-changes
     runs-on: ubuntu-latest #Select Linux Ubuntu as the runner environment
     steps:
       - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
