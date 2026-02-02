@@ -1,0 +1,13 @@
+apiVersion: v2
+appVersion: 3.0.0
+description: Seerr helm chart for Kubernetes
+home: https://github.com/seerr-team/seerr
+kubeVersion: '>=1.23.0-0'
+maintainers:
+- name: Seerr Team
+  url: https://github.com/orgs/seerr-team/people
+name: seerr-chart
+sources:
+- https://github.com/seerr-team/seerr/tree/main/charts/seerr
+type: application
+version: 3.0.0
