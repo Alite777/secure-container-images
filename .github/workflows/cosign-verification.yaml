@@ -1,0 +1,108 @@
+name: cosign-verification
+on:
+  pull_request:
+    paths:
+      - 'cd/helm-charts/**' # Only run on changes to helm charts
+  # Allows manual triggering and disablement of workflow
+  workflow_dispatch:
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      # declare variables "charts" and "has-charts" to reference them later
+      # steps.get-charts references the set id of the first step "Get changed charts"
+      charts: ${{ steps.get-charts.outputs.charts }}
+      has-charts: ${{ steps.get-charts.outputs.has-charts }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history to compare changes
+          
+      - name: Get changed charts
+        id: get-charts
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # For manual runs, scan all charts
+            CHARTS=$(find cd/helm-charts -maxdepth 1 -mindepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          else
+            # For PRs, only scan changed charts
+            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            CHARTS=$(echo "$CHANGED_FILES" | grep '^cd/helm-charts/' | cut -d'/' -f3 | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          fi
+          
+          echo "charts=${CHARTS}" >> $GITHUB_OUTPUT
+          
+          # Check if we have any charts to scan
+          if [ "$CHARTS" = "[]" ] || [ -z "$CHARTS" ]; then
+            echo "has-charts=false" >> $GITHUB_OUTPUT
+            echo "No charts to scan"
+          else
+            echo "has-charts=true" >> $GITHUB_OUTPUT
+            echo "Charts to scan: ${CHARTS}"
+          fi
+  
+  cosign:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has-charts == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.detect-changes.outputs.charts) }}
+      fail-fast: false # Continue verifying other charts even if one fails
+    
+    steps:
+      - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
+
+      - name: Install yq
+        uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
+
+      - name: Read image from values.yaml
+        id: image
+        run: |
+          VALUES_FILE="cd/helm-charts/${{ matrix.chart }}/values.yaml"
+          REPO=$(yq e '.image.repository' "$VALUES_FILE")
+          TAG=$(yq e '.image.tag' "$VALUES_FILE")
+          
+          # Fallback to 'latest' if tag is empty
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            TAG="latest"
+          fi
+          
+          IMAGE="${REPO}:${TAG}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "Scanning image: ${IMAGE}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.0.0
+      - name: Verify installation
+        run: cosign version
+
+      - name: Verify image signature with cosign
+        id: cosign-verify
+        continue-on-error: true
+        run: |
+          IMAGE="${{ steps.image.outputs.image }}"
+          echo "Attempting to verify signature for: ${IMAGE}"
+          
+          # Try keyless verification (requires image to be signed with Sigstore)
+          if cosign verify --certificate-identity-regexp=.* --certificate-oidc-issuer=https://token.actions.githubusercontent.com "${IMAGE}" > /dev/null 2>&1; then
+            echo "Image signature verified with Sigstore keyless signing"
+            echo "verified=true" >> $GITHUB_OUTPUT
+          else
+            echo "Image is not signed with Sigstore keyless signing"
+            echo "verified=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Report verification result
+        if: always()
+        run: |
+          IMAGE="${{ steps.image.outputs.image }}"
+          VERIFIED="${{ steps.cosign-verify.outputs.verified }}"
+          
+          if [ "$VERIFIED" = "true" ]; then
+            echo "${{ matrix.chart }}: Signature verified successfully"
+          else
+            echo "${{ matrix.chart }}: Image not signed or signature verification failed"
+            exit 1
+          fi
