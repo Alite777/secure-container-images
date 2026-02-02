@@ -3,7 +3,7 @@ image:
   repository: seerr-team/seerr
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
-  tag: ''
+  tag: '3.0.0'
   sha: ''
 
 imagePullSecrets: []
