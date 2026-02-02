@@ -45,14 +45,7 @@ jobs:
           fi
 
   trivy:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has-charts == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        chart: ${{ fromJson(needs.detect-changes.outputs.charts) }}
-      fail-fast: false # Continue scanning other charts even if one fails
-    
+    runs-on: ubuntu-latest #Select Linux Ubuntu as the runner environment
     steps:
       - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
 
@@ -61,60 +54,56 @@ jobs:
 
       - name: Read image from values.yaml
         id: image
-        # Extract image repository and tag from Helm chart values.yaml
-        # if tag is not specified, default to 'latest'
-        # Combine them to form the full image reference and save it as an output variable
         run: |
           VALUES_FILE="cd/helm-charts/${{ matrix.chart }}/values.yaml"
           REPO=$(yq e '.image.repository' "$VALUES_FILE")
           TAG=$(yq e '.image.tag' "$VALUES_FILE")
           
+          # Fallback to 'latest' if tag is empty
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             TAG="latest"
           fi
           
-          echo "repository=${REPO}" >> $GITHUB_OUTPUT
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "image=${REPO}:${TAG}" >> $GITHUB_OUTPUT
-          echo "Scanning image: ${REPO}:${TAG}"
+          IMAGE="${REPO}:${TAG}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "Scanning image: ${IMAGE}"
         
-      - name: Run Trivy vulnerability scanner
+      - name: Scan image for vulnerabilities (SARIF format)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ steps.image.outputs.image }}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.chart }}.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'  # Don't fail here, let the final step handle it
           
-      - name: Upload Trivy results to GitHub Security tab
+      - name: Upload scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
-        if: always() # Upload results even if scan found vulnerabilities
+        if: always()
         with:
           sarif_file: 'trivy-results-${{ matrix.chart }}.sarif'
           category: 'trivy-${{ matrix.chart }}'
           
-      - name: Run Trivy scan (table output for logs)
+      - name: Scan image for vulnerabilities (human-readable table)
         uses: aquasecurity/trivy-action@0.28.0
-        if: always()
+        continue-on-error: true
         with:
           image-ref: ${{ steps.image.outputs.image }}
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'  # Will fail if vulnerabilities found, but continue-on-error allows workflow to continue
           
-      - name: Fail if vulnerabilities found
-        if: always()
+      - name: Block deployment if critical vulnerabilities found
         run: |
-          if grep -q '"severity": "CRITICAL"' trivy-results-${{ matrix.chart }}.sarif || grep -q '"severity": "HIGH"' trivy-results-${{ matrix.chart }}.sarif; then
-            echo "Critical or High severity vulnerabilities found in ${{ matrix.chart }}"
+          # Count vulnerabilities in SARIF file using jq
+          RESULTS_COUNT=$(jq '[.runs[].results[]] | length' trivy-results-${{ matrix.chart }}.sarif)
+          
+          if [ "$RESULTS_COUNT" -gt 0 ]; then
+            echo "Found $RESULTS_COUNT CRITICAL or HIGH severity vulnerabilities in ${{ matrix.chart }}"
+            echo "Deployment blocked! Fix vulnerabilities before merging."
             exit 1
           else
-            echo "No critical or high severity vulnerabilities found in ${{ matrix.chart }}"
+            echo "No CRITICAL or HIGH severity vulnerabilities found in ${{ matrix.chart }}"
+            echo "Image is safe to deploy"
           fi
           
-      # - name: Run Trivy scan (table output for logs)
-      #   uses: aquasecurity/trivy-action@0.28.0
-      #   if: always()
-      #   with:
-      #     image-ref: ${{ steps.image.outputs.image }}
-      #     format: 'table'
-      #     severity: 'CRITICAL,HIGH,MEDIUM'
