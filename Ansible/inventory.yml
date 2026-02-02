@@ -1,12 +1,12 @@
 ---
 lab_all:
   children:
-    mgmt:
-      hosts:
-        jump01:
-          ansible_host: 100.116.10.136
-        deployment:
-          ansible_host: 100.116.65.154
+    # mgmt:
+    #   hosts:
+    #     jump01:
+    #       ansible_host: 
+    #     deployment:
+    #       ansible_host: 
     k3s_servers:
       children:
         k3s_server:
