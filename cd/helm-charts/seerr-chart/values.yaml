@@ -3,7 +3,7 @@ image:
   repository: alite777/secure-container-images/seerr
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
-  tag: 'sha256-6febba5c4bf6d06e80d647c15f1555d42ec566e24c3a1ed4e8642687cf902bc8'
+  tag: '3.0.0'
   sha: ''
 
 imagePullSecrets: []
