@@ -61,15 +61,36 @@ jobs:
         id: image
         run: |
           VALUES_FILE="cd/helm-charts/${{ matrix.chart }}/values.yaml"
+          REGISTRY=$(yq e '.image.registry' "$VALUES_FILE")
           REPO=$(yq e '.image.repository' "$VALUES_FILE")
           TAG=$(yq e '.image.tag' "$VALUES_FILE")
+          SHA=$(yq e '.image.sha' "$VALUES_FILE")
+          DIGEST=$(yq e '.image.digest' "$VALUES_FILE")
           
           # Fallback to 'latest' if tag is empty
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             TAG="latest"
           fi
           
-          IMAGE="${REPO}:${TAG}"
+          # Build full image reference with registry if present
+          if [ -n "$REGISTRY" ] && [ "$REGISTRY" != "null" ]; then
+            IMAGE="${REGISTRY}/${REPO}:${TAG}"
+          else
+            IMAGE="${REPO}:${TAG}"
+          fi
+          
+          # Add SHA or digest if present
+          if [ -n "$SHA" ] && [ "$SHA" != "null" ]; then
+            IMAGE="${IMAGE}@sha256:${SHA}"
+          elif [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+            # If digest already contains sha256:, use as-is, otherwise add prefix
+            if [[ "$DIGEST" == sha256:* ]]; then
+              IMAGE="${IMAGE}@${DIGEST}"
+            else
+              IMAGE="${IMAGE}@sha256:${DIGEST}"
+            fi
+          fi
+          
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "Scanning image: ${IMAGE}"
 
@@ -83,15 +104,24 @@ jobs:
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Verifying signature for: ${IMAGE}"
           
+          # Extract digest if present for better error reporting
+          if [[ "$IMAGE" == *"@"* ]]; then
+            DIGEST="${IMAGE##*@}"
+            echo "Using digest: ${DIGEST}"
+          fi
+          
           # Attempt keyless verification with Sigstore
-          if cosign verify \
-            --certificate-oidc-issuer=".*" \
+          COSIGN_OUTPUT=$(cosign verify \
+            --certificate-oidc-issuer-regexp=".*" \
             --certificate-identity-regexp=".*" \
-            "${IMAGE}" 2>&1 | grep -q "Verification successful"; then
+            "${IMAGE}" 2>&1)
+          
+          if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
             echo "Signature verified with Sigstore keyless signing"
             echo "verified=true" >> $GITHUB_OUTPUT
           else
             echo "Signature verification failed"
+            echo "Cosign output: $COSIGN_OUTPUT"
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
 
