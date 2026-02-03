@@ -1,6 +1,6 @@
 image:
   registry: ghcr.io
-  repository: seerr-team/seerr
+  repository: alite777/secure-container-images/seerr
   pullPolicy: IfNotPresent
   # -- Overrides the image tag whose default is the chart appVersion.
   tag: '3.0.0'
