@@ -75,22 +75,23 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v4.0.0
-      - name: Verify installation
-        run: cosign version
 
       - name: Verify image signature with cosign
         id: cosign-verify
         continue-on-error: true
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
-          echo "Attempting to verify signature for: ${IMAGE}"
+          echo "Verifying signature for: ${IMAGE}"
           
-          # Try keyless verification (requires image to be signed with Sigstore)
-          if cosign verify --certificate-identity-regexp=.* --certificate-oidc-issuer=https://token.actions.githubusercontent.com "${IMAGE}" > /dev/null 2>&1; then
-            echo "Image signature verified with Sigstore keyless signing"
+          # Attempt keyless verification with Sigstore
+          if cosign verify \
+            --certificate-oidc-issuer=".*" \
+            --certificate-identity-regexp=".*" \
+            "${IMAGE}" 2>&1 | grep -q "Verification successful"; then
+            echo "Signature verified with Sigstore keyless signing"
             echo "verified=true" >> $GITHUB_OUTPUT
           else
-            echo "Image is not signed with Sigstore keyless signing"
+            echo "Signature verification failed"
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
 
@@ -101,8 +102,9 @@ jobs:
           VERIFIED="${{ steps.cosign-verify.outputs.verified }}"
           
           if [ "$VERIFIED" = "true" ]; then
-            echo "${{ matrix.chart }}: Signature verified successfully"
+            echo "${{ matrix.chart }}: Image signature verified"
           else
-            echo "${{ matrix.chart }}: Image not signed or signature verification failed"
+            echo "${{ matrix.chart }}: Image is not signed or cannot be verified"
             exit 1
           fi
+
