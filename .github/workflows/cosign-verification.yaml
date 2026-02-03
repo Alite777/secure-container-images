@@ -111,12 +111,9 @@ jobs:
           fi
           
           # Attempt keyless verification with Sigstore
-          COSIGN_OUTPUT=$(cosign verify \
-            --certificate-oidc-issuer-regexp=".*" \
-            --certificate-identity-regexp=".*" \
-            "${IMAGE}" 2>&1)
+          COSIGN_OUTPUT=$(cosign verify "${IMAGE}" --certificate-oidc-issuer-regexp=".*" --certificate-identity-regexp=".*" 2>&1)
           
-          if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
+          if [echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"]; then
             echo "Signature verified with Sigstore keyless signing"
             echo "verified=true" >> $GITHUB_OUTPUT
           else
