@@ -120,14 +120,18 @@ jobs:
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Verifying SBOM signature for image: ${IMAGE}"
 
-          COSIGN_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq . 2>&1)
+          # First run: Capture verification output (includes "The following checks were performed")
+          VERIFICATION_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" 2>&1)
           
-          if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
+          if echo "$VERIFICATION_OUTPUT" | grep -q "The following checks were performed"; then
             echo "SBOM Signature verified with Sigstore keyless signing"
             echo "verified=true" >> $GITHUB_OUTPUT
+            
+            # Second run: Extract and parse the SBOM JSON payload
+            COSIGN_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq . 2>&1)
           else
             echo "SBOM Signature verification failed"
-            echo "Cosign output: $COSIGN_OUTPUT"
+            echo "Verification output: $VERIFICATION_OUTPUT"
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
 
@@ -164,7 +168,7 @@ jobs:
           category: 'trivy-${{ matrix.chart }}'
       
       - name: Fail if vulnerabilities detected
-        if: steps.trivy-scan.outcome == 'failure'
+        if: steps.trivy-sbom-scan.outcome == 'failure'
         run: |
           echo "CRITICAL or HIGH vulnerabilities found in ${{ matrix.chart }}"
           echo "Deployment blocked! Check the Security tab for details."
