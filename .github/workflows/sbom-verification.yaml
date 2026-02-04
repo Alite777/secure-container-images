@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
   security-events: write # Allow uploading SARIF results
 
 jobs:
@@ -57,6 +58,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
+
+      - name: Install yq
+        uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
 
       - name: Login to GHCR for private images
         uses: docker/login-action@v3
@@ -113,6 +117,9 @@ jobs:
         id: verify-sbom
         continue-on-error: true
         run: |
+          IMAGE="${{ steps.image.outputs.image }}"
+          echo "Verifying SBOM signature for image: ${IMAGE}"
+          
           SBOM=$(cosign verify-attestation --type=spdx.json --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
           
           if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
