@@ -113,7 +113,7 @@ jobs:
         id: verify-sbom
         continue-on-error: true
         run: |
-          SBOM=$(cosign verify-attestation --type spdx.json --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
+          SBOM=$(cosign verify-attestation --type=spdx.json --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
           
           if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
             echo "SBOM Signature verified with Sigstore keyless signing"
