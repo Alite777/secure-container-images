@@ -127,8 +127,9 @@ jobs:
             echo "SBOM Signature verified with Sigstore keyless signing"
             echo "verified=true" >> $GITHUB_OUTPUT
             
-            # Second run: Extract and parse the SBOM JSON payload
-            COSIGN_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq . 2>&1)
+            # Second run: Extract and parse the SBOM JSON payload and save to file
+            cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq . > sbom-${{ matrix.chart }}.json
+            echo "sbom-file=sbom-${{ matrix.chart }}.json" >> $GITHUB_OUTPUT
           else
             echo "SBOM Signature verification failed"
             echo "Verification output: $VERIFICATION_OUTPUT"
@@ -142,19 +143,20 @@ jobs:
           VERIFIED="${{ steps.verify-sbom.outputs.verified }}"
           
           if [ "$VERIFIED" = "true" ]; then
-            echo "${{ matrix.chart }}: Image signature verified"
+            echo "${{ matrix.chart }}: SBOM signature verified"
           else
-            echo "${{ matrix.chart }}: Image is not signed or cannot be verified"
+            echo "${{ matrix.chart }}: SBOM is not signed or cannot be verified"
             exit 1
           fi
 
       - name: Scan SBOMs
         id: trivy-sbom-scan
+        if: steps.verify-sbom.outputs.verified == 'true'
         uses: aquasecurity/trivy-action@0.28.0
         continue-on-error: true
         with:
           scan-type: 'sbom'
-          scan-ref: ${COSIGN_OUTPUT}
+          scan-ref: ${{ steps.verify-sbom.outputs.sbom-file }}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.chart }}.sarif'
           severity: 'CRITICAL,HIGH'
@@ -162,7 +164,7 @@ jobs:
 
       - name: Upload results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: steps.verify-sbom.outputs.verified == 'true'
         with:
           sarif_file: 'trivy-results-${{ matrix.chart }}.sarif'
           category: 'trivy-${{ matrix.chart }}'
