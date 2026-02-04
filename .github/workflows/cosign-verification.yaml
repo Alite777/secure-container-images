@@ -127,7 +127,7 @@ jobs:
           echo "skipped digest extraction"
 
           # Attempt keyless verification with Sigstore
-          COSIGN_OUTPUT=$(cosign verify "${IMAGE}" --certificate-oidc-issuer-regexp=".*" --certificate-identity-regexp=".*")
+          COSIGN_OUTPUT=$(cosign verify "${IMAGE}" --certificate-oidc-issuer-regexp=".*" --certificate-identity-regexp=".*" 2>&1)
           echo "$COSIGN_OUTPUT"
           echo "attempted to read output"
 
