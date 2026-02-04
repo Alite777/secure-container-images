@@ -61,6 +61,11 @@ jobs:
 
       - name: Install yq
         uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
+      
+      - name: Install trivy
+        run: |
+          wget https://github.com/aquasecurity/trivy/releases/download/v0.52.2/trivy_0.52.2_Linux-64bit.deb
+          sudo dpkg -i trivy_0.52.2_Linux-64bit.deb
 
       - name: Login to GHCR for private images
         uses: docker/login-action@v3
