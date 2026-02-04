@@ -120,7 +120,7 @@ jobs:
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Verifying SBOM signature for image: ${IMAGE}"
 
-          SBOM=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
+          COSIGN_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
           
           if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
             echo "SBOM Signature verified with Sigstore keyless signing"
@@ -150,7 +150,7 @@ jobs:
         continue-on-error: true
         with:
           scan-type: 'sbom'
-          scan-ref: ${SBOM}
+          scan-ref: ${COSIGN_OUTPUT}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.chart }}.sarif'
           severity: 'CRITICAL,HIGH'
