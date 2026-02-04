@@ -123,9 +123,9 @@ diagnosticMode:
 ## @param image.debug Specify if debug values should be set
 ##
 image:
-  registry: registry-1.docker.io
-  repository: bitnami/postgresql
-  tag: latest
+  registry: ghcr.io
+  repository: alite777/secure-container-images/postgresql
+  tag: 1.0.0
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images

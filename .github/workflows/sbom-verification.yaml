@@ -1,4 +1,4 @@
-name: cosign-verification
+name: sbom-verification
 on:
   pull_request:
     paths:
@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  packages: read
+  security-events: write # Allow uploading SARIF results
 
 jobs:
   detect-changes:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch all history to compare changes
-          
+
       - name: Get changed charts
         id: get-charts
         run: |
@@ -45,22 +45,26 @@ jobs:
             echo "has-charts=true" >> $GITHUB_OUTPUT
             echo "Charts to scan: ${CHARTS}"
           fi
-  
-  cosign:
+
+  verification:
     needs: detect-changes
     if: needs.detect-changes.outputs.has-charts == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         chart: ${{ fromJson(needs.detect-changes.outputs.charts) }}
-      fail-fast: false # Continue verifying other charts even if one fails
-    
+      fail-fast: false # Continue scanning other charts even if one fails
+
     steps:
       - uses: actions/checkout@v4 # Clones the repository of the workflow into the filesystem of the runner (to ./)
 
-      - name: Install yq
-        uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
-
+      - name: Login to GHCR for private images
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Read image from values.yaml
         id: image
         run: |
@@ -71,8 +75,8 @@ jobs:
           SHA=$(yq e '.image.sha' "$VALUES_FILE")
           DIGEST=$(yq e '.image.digest' "$VALUES_FILE")
           
-          # Fallback to 'latest' if tag is empty
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+          # Fallback to 'latest' if tag, sha and digest are all empty
+          if ([ -z "$TAG" ] || [ "$TAG" = "null" ]) && ([ -z "$SHA" ] || [ "$SHA" = "null" ]) && ([ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]); then
             TAG="latest"
           fi
           
@@ -105,37 +109,17 @@ jobs:
         run: |
           cosign version
 
-      - name: Login to GHCR for private images
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify image signature with cosign
-        id: cosign-verify
+      - name: Verify SBOM Signature
+        id: verify-sbom
         continue-on-error: true
         run: |
-          IMAGE="${{ steps.image.outputs.image }}"
-          echo "Verifying signature for: ${IMAGE}"
+          SBOM=$(cosign verify-attestation --type spdx.json --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
           
-          # Extract digest if present
-          if [[ "$IMAGE" == *"@"* ]]; then
-            DIGEST="${IMAGE##*@}"
-            echo "Using digest: ${DIGEST}"
-          fi
-          echo "skipped digest extraction"
-
-          # Attempt keyless verification with Sigstore
-          COSIGN_OUTPUT=$(cosign verify "${IMAGE}" --certificate-oidc-issuer-regexp=".*" --certificate-identity-regexp=".*")
-          echo "$COSIGN_OUTPUT"
-          echo "attempted to read output"
-
           if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
-            echo "Signature verified with Sigstore keyless signing"
+            echo "SBOM Signature verified with Sigstore keyless signing"
             echo "verified=true" >> $GITHUB_OUTPUT
           else
-            echo "Signature verification failed"
+            echo "SBOM Signature verification failed"
             echo "Cosign output: $COSIGN_OUTPUT"
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
@@ -144,7 +128,7 @@ jobs:
         if: always()
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
-          VERIFIED="${{ steps.cosign-verify.outputs.verified }}"
+          VERIFIED="${{ steps.verify-sbom.outputs.verified }}"
           
           if [ "$VERIFIED" = "true" ]; then
             echo "${{ matrix.chart }}: Image signature verified"
@@ -153,3 +137,29 @@ jobs:
             exit 1
           fi
 
+      - name: Scan SBOMs
+        id: trivy-sbom-scan
+        uses: aquasecurity/trivy-action@0.28.0
+        continue-on-error: true
+        with:
+          scan-type: 'sbom'
+          scan-ref: ${SBOM}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.chart }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.chart }}.sarif'
+          category: 'trivy-${{ matrix.chart }}'
+      
+      - name: Fail if vulnerabilities detected
+        if: steps.trivy-scan.outcome == 'failure'
+        run: |
+          echo "CRITICAL or HIGH vulnerabilities found in ${{ matrix.chart }}"
+          echo "Deployment blocked! Check the Security tab for details."
+          exit 1
+          
