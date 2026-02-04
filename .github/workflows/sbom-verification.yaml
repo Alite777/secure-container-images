@@ -120,7 +120,7 @@ jobs:
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Verifying SBOM signature for image: ${IMAGE}"
 
-          COSIGN_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq .)
+          COSIGN_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq . 2>&1)
           
           if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
             echo "SBOM Signature verified with Sigstore keyless signing"
