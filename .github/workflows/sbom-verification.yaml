@@ -174,7 +174,7 @@ jobs:
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Scanning SBOM of image: ${IMAGE}"
-          trivy image --sbom-sources oci --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
+          trivy image --sbom-sources oci --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
           echo "Finished SBOM scan, results:"
           cat trivy-results-${{ matrix.chart }}.sarif
 
