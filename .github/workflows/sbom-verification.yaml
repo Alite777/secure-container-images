@@ -154,11 +154,25 @@ jobs:
             exit 1
           fi
 
+      # - name: Scan SBOMs
+      #   id: trivy-sbom-scan
+      #   if: steps.verify-sbom.outputs.verified == 'true'
+      #   uses: aquasecurity/trivy-action@0.28.0
+      #   continue-on-error: true
+      #   with:
+      #     scan-type: 'sbom'
+      #     scan-ref: ${{ steps.verify-sbom.outputs.sbom-file }}
+      #     format: 'sarif'
+      #     output: 'trivy-results-${{ matrix.chart }}.sarif'
+      #     severity: 'CRITICAL,HIGH'
+      #     exit-code: '1'
+      
       - name: Scan SBOMs
         id: trivy-sbom-scan
         if: steps.verify-sbom.outputs.verified == 'true'
         continue-on-error: true
         run: |
+          cat ${{ steps.verify-sbom.outputs.sbom-file }}
           trivy sbom --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${{ steps.verify-sbom.outputs.sbom-file }}
           
           # Check if SARIF file was created and has findings
