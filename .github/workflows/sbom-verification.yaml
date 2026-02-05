@@ -173,7 +173,7 @@ jobs:
         continue-on-error: true
         run: |
           cat ${{ steps.verify-sbom.outputs.sbom-file }}
-          trivy sbom --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${{ steps.verify-sbom.outputs.sbom-file }}
+          trivy sbom --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${{ steps.verify-sbom.outputs.sbom-file }}
           
           # Check if SARIF file was created and has findings
           if [ -f "trivy-results-${{ matrix.chart }}.sarif" ]; then
