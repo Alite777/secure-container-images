@@ -175,12 +175,14 @@ jobs:
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Scanning SBOM of image: ${IMAGE}"
           trivy image --sbom-sources oci --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
-          
+          echo "Finished SBOM scan, results:"
+          cat trivy-results-${{ matrix.chart }}.sarif
 
           # Check if SARIF file was created and has findings
           if [ -f "trivy-results-${{ matrix.chart }}.sarif" ]; then
             # Count vulnerabilities in SARIF
             VULN_COUNT=$(jq '.runs[0].results | length' trivy-results-${{ matrix.chart }}.sarif 2>/dev/null || echo 0)
+            echo "Vulnerabilities found: $VULN_COUNT"
             if [ "$VULN_COUNT" -gt 0 ]; then
               exit 1
             fi
