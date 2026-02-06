@@ -73,15 +73,36 @@ jobs:
         id: image
         run: |
           VALUES_FILE="cd/helm-charts/${{ matrix.chart }}/values.yaml"
+          REGISTRY=$(yq e '.image.registry' "$VALUES_FILE")
           REPO=$(yq e '.image.repository' "$VALUES_FILE")
           TAG=$(yq e '.image.tag' "$VALUES_FILE")
-          
-          # Fallback to 'latest' if tag is empty
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+          SHA=$(yq e '.image.sha' "$VALUES_FILE")
+          DIGEST=$(yq e '.image.digest' "$VALUES_FILE")
+
+          # Fallback to 'latest' if tag, sha and digest are all empty
+          if ([ -z "$TAG" ] || [ "$TAG" = "null" ]) && ([ -z "$SHA" ] || [ "$SHA" = "null" ]) && ([ -z "$DIGEST" ] || [ "$DIGEST" = "null" ]); then
             TAG="latest"
           fi
-          
-          IMAGE="${REPO}:${TAG}"
+
+          # Build full image reference with registry if present
+          if [ -n "$REGISTRY" ] && [ "$REGISTRY" != "null" ]; then
+            IMAGE="${REGISTRY}/${REPO}:${TAG}"
+          else
+            IMAGE="${REPO}:${TAG}"
+          fi
+
+          # Add SHA or digest if present
+          if [ -n "$SHA" ] && [ "$SHA" != "null" ]; then
+            IMAGE="${IMAGE}@sha256:${SHA}"
+          elif [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]; then
+            # If digest already contains sha256:, use as-is, otherwise add prefix
+            if [[ "$DIGEST" == sha256:* ]]; then
+              IMAGE="${IMAGE}@${DIGEST}"
+            else
+              IMAGE="${IMAGE}@sha256:${DIGEST}"
+            fi
+          fi
+
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "Scanning image: ${IMAGE}"
         
