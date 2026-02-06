@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
   security-events: write # Allow uploading SARIF results
 
 jobs:
