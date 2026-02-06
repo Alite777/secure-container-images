@@ -62,6 +62,13 @@ jobs:
       - name: Install yq
         uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
 
+      - name: Login to GHCR for private images
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Read image from values.yaml
         id: image
         run: |
