@@ -167,7 +167,7 @@ jobs:
             echo "sbom-file=sbom-${{ matrix.chart }}.spdx.json" >> $GITHUB_OUTPUT
             
             # Extract trivy version from SBOM
-            TRIVY_VERSION=$(jq -r '.creationInfo.creators[] | select(startswith("Tool: trivy-")) | sub("Tool: trivy-"; "")' sbom-${{ matrix.chart }}.spdx.json)
+            TRIVY_VERSION=$(jq -r '.predicate.creationInfo.creators[] | select(startswith("Tool: trivy-")) | sub("Tool: trivy-"; "")' sbom-${{ matrix.chart }}.spdx.json)
             echo "trivy-version=${TRIVY_VERSION}" >> $GITHUB_OUTPUT
             echo "Detected Trivy version from SBOM: ${TRIVY_VERSION}"
           else
