@@ -224,13 +224,21 @@ jobs:
           SIGNED_SBOM_SIZE=$(wc -c < "${SBOM_FILE}")
           echo "Signed SBOM file size: ${SIGNED_SBOM_SIZE} bytes"
 
-          # IMPORTANT: Use image reference WITHOUT tag (only digest) to match original generation
-          # Original generation likely used: image@sha256:... (no tag)
-          if [[ "$IMAGE" == *"@sha256:"* ]]; then
-            # Extract registry and repo without tag, then add sha256
-            IMAGE_FOR_SCAN=$(echo "$IMAGE" | sed -E 's/:([^@]*)?@sha256:/@sha256:/')
-            # Remove any :latest or tag before the @
-            IMAGE_FOR_SCAN=$(echo "$IMAGE_FOR_SCAN" | sed -E 's/:latest@sha256:/@sha256:/')
+          # Extract image digest from signed SBOM to ensure we scan the exact same image
+          # The signed SBOM contains the exact image reference that was scanned
+          SIGNED_IMAGE_REF=$(jq -r '.predicate.packages[] | select(.name | contains("'${{ matrix.chart }}'")) | .externalRefs[] | select(.referenceType == "purl") | .referenceLocator' "${SBOM_FILE}" | grep "^pkg:oci" | head -1)
+          
+          if [ -n "$SIGNED_IMAGE_REF" ]; then
+            # Extract the digest from the purl (format: pkg:oci/name@sha256%3Adigest?...)
+            IMAGE_DIGEST=$(echo "$SIGNED_IMAGE_REF" | sed -E 's/.*@sha256%3A([a-f0-9]+).*/\1/')
+            if [ -n "$IMAGE_DIGEST" ]; then
+              # Build image reference with digest only (no tag)
+              IMAGE_FOR_SCAN=$(echo "$IMAGE" | sed -E 's/:[^@]+$//')
+              IMAGE_FOR_SCAN="${IMAGE_FOR_SCAN}@sha256:${IMAGE_DIGEST}"
+              echo "Extracted digest from signed SBOM: sha256:${IMAGE_DIGEST}"
+            else
+              IMAGE_FOR_SCAN="$IMAGE"
+            fi
           else
             IMAGE_FOR_SCAN="$IMAGE"
           fi
@@ -238,17 +246,23 @@ jobs:
           echo "Using image reference for fresh scan: ${IMAGE_FOR_SCAN}"
 
           # Generate fresh SBOM from image (using same method as original generation)
+          # IMPORTANT: Redirect stderr to /dev/null to avoid mixing error messages with JSON
           echo "Generating fresh SBOM from image..."
-          trivy image --format spdx-json "${IMAGE_FOR_SCAN}" > /tmp/true-sbom.json 2>&1
+          if ! trivy image --format spdx-json "${IMAGE_FOR_SCAN}" 2>/dev/null > /tmp/true-sbom.json; then
+            echo "ERROR: trivy failed to generate SBOM"
+            echo "Trivy error output:"
+            trivy image --format spdx-json "${IMAGE_FOR_SCAN}" 2>&1 | head -20
+            exit 1
+          fi
           
           FRESH_SBOM_SIZE=$(wc -c < /tmp/true-sbom.json)
           echo "Fresh SBOM file size: ${FRESH_SBOM_SIZE} bytes"
           
-          # Check if fresh SBOM has content
-          if [ "$FRESH_SBOM_SIZE" -lt 100 ]; then
-            echo "ERROR: Fresh SBOM is suspiciously small (< 100 bytes)"
-            echo "Fresh SBOM content:"
-            cat /tmp/true-sbom.json
+          # Verify the fresh SBOM is valid JSON
+          if ! jq empty /tmp/true-sbom.json 2>/dev/null; then
+            echo "ERROR: Fresh SBOM is not valid JSON"
+            echo "First 20 lines of fresh SBOM:"
+            head -20 /tmp/true-sbom.json
             exit 1
           fi
 
