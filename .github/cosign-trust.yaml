@@ -1,0 +1,14 @@
+# Trusted OIDC issuers and certificate identities for cosign keyless verification.
+# Replace OWNER/REPO and workflow paths with your actual values.
+
+trusted:
+  oidc_issuers:
+    - https://token.actions.githubusercontent.com
+    - https://accounts.google.com
+    - https://oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLE1234567890
+
+  identities:
+    - https://github.com/OWNER/REPO/.github/workflows/cosign-verification.yaml@refs/heads/main
+    - https://github.com/OWNER/REPO/.github/workflows/sbom-verification.yaml@refs/heads/main
+    - https://github.com/OWNER/REPO/.github/workflows/release.yaml@refs/tags/v1.0.0
+    - https://github.com/OWNER/REPO/.github/workflows/build.yaml@refs/pull/123/merge
