@@ -126,21 +126,58 @@ jobs:
         continue-on-error: true
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
+          TRUST_FILE=".github/cosign-trust.yaml"
           echo "Verifying SBOM signature for image: ${IMAGE}"
 
-          # First run: Capture verification output (includes "The following checks were performed")
-          VERIFICATION_OUTPUT=$(cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" 2>&1)
-          
-          if echo "$VERIFICATION_OUTPUT" | grep -q "The following checks were performed"; then
+          if [ ! -f "$TRUST_FILE" ]; then
+            echo "Trust config not found: ${TRUST_FILE}"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          mapfile -t ISSUERS < <(yq e '.trusted.oidc_issuers[]' "$TRUST_FILE")
+          mapfile -t IDENTITIES < <(yq e '.trusted.identities[]' "$TRUST_FILE")
+
+          if [ "${#ISSUERS[@]}" -eq 0 ] || [ "${#IDENTITIES[@]}" -eq 0 ]; then
+            echo "No trusted issuers or identities configured in ${TRUST_FILE}"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VERIFIED=false
+          MATCHED_ISSUER=""
+          MATCHED_IDENTITY=""
+          LAST_ERROR=""
+
+          for issuer in "${ISSUERS[@]}"; do
+            for identity in "${IDENTITIES[@]}"; do
+              echo "Trying issuer: ${issuer}"
+              echo "Trying identity: ${identity}"
+
+              if cosign verify-attestation --type=spdxjson --output json --certificate-oidc-issuer="${issuer}" --certificate-identity="${identity}" "${IMAGE}" > /tmp/cosign-attestation.json 2> /tmp/cosign-attestation.err; then
+                VERIFIED=true
+                MATCHED_ISSUER="${issuer}"
+                MATCHED_IDENTITY="${identity}"
+                break 2
+              else
+                LAST_ERROR=$(cat /tmp/cosign-attestation.err)
+              fi
+            done
+          done
+
+          if [ "$VERIFIED" = "true" ]; then
             echo "SBOM Signature verified with Sigstore keyless signing"
+            echo "matched-issuer=${MATCHED_ISSUER}" >> $GITHUB_OUTPUT
+            echo "matched-identity=${MATCHED_IDENTITY}" >> $GITHUB_OUTPUT
             echo "verified=true" >> $GITHUB_OUTPUT
-            
-            # Second run: Extract and parse the SBOM JSON payload and save to file with .spdx.json extension so Trivy recognizes it
-            cosign verify-attestation --type=spdxjson --certificate-identity-regexp=".*" --certificate-oidc-issuer-regexp=".*" "${IMAGE}" | jq -r .payload | base64 -d | jq . > sbom-${{ matrix.chart }}.spdx.json
+
+            jq -s -r '.[0].payload' /tmp/cosign-attestation.json | base64 -d | jq . > sbom-${{ matrix.chart }}.spdx.json
             echo "sbom-file=sbom-${{ matrix.chart }}.spdx.json" >> $GITHUB_OUTPUT
           else
-            echo "SBOM Signature verification failed"
-            echo "Verification output: $VERIFICATION_OUTPUT"
+            echo "SBOM Signature verification failed for all trusted issuers/identities"
+            if [ -n "$LAST_ERROR" ]; then
+              echo "Last error: $LAST_ERROR"
+            fi
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
 
