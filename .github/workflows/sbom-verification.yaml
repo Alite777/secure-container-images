@@ -211,75 +211,63 @@ jobs:
           SBOM_FILE="${{ steps.verify-sbom.outputs.sbom-file }}"
           echo "Checking if SBOM matches image contents for ${IMAGE}"
 
-          # --- Copilot take the wheel start ---
-          
-          echo "Using signed SBOM from: ${SBOM_FILE}"
+          # Generate fresh SBOM from image
+          trivy image --format spdx-json ${IMAGE} > /tmp/generated-sbom.json 2>/dev/null
 
-          # Verify signed SBOM file exists and has content
-          if [ ! -f "${SBOM_FILE}" ]; then
-            echo "ERROR: Signed SBOM file not found: ${SBOM_FILE}"
-            exit 1
-          fi
-          
-          SIGNED_SBOM_SIZE=$(wc -c < "${SBOM_FILE}")
-          echo "Signed SBOM file size: ${SIGNED_SBOM_SIZE} bytes"
+          # Extract SBOM from in-toto attestation (the signed/source SBOM)
+          jq '.predicate' "${SBOM_FILE}" > /tmp/source-sbom.json
 
-          # Extract image digest from signed SBOM to ensure we scan the exact same image
-          # The signed SBOM contains the exact image reference that was scanned
-          SIGNED_IMAGE_REF=$(jq -r '.predicate.packages[] | select(.name | contains("'${{ matrix.chart }}'")) | .externalRefs[] | select(.referenceType == "purl") | .referenceLocator' "${SBOM_FILE}" | grep "^pkg:oci" | head -1)
-          
-          if [ -n "$SIGNED_IMAGE_REF" ]; then
-            # Extract the digest from the purl (format: pkg:oci/name@sha256%3Adigest?...)
-            IMAGE_DIGEST=$(echo "$SIGNED_IMAGE_REF" | sed -E 's/.*@sha256%3A([a-f0-9]+).*/\1/')
-            if [ -n "$IMAGE_DIGEST" ]; then
-              # Build image reference with digest only (no tag)
-              IMAGE_FOR_SCAN=$(echo "$IMAGE" | sed -E 's/:[^@]+$//')
-              IMAGE_FOR_SCAN="${IMAGE_FOR_SCAN}@sha256:${IMAGE_DIGEST}"
-              echo "Extracted digest from signed SBOM: sha256:${IMAGE_DIGEST}"
-            else
-              IMAGE_FOR_SCAN="$IMAGE"
-            fi
-          else
-            IMAGE_FOR_SCAN="$IMAGE"
-          fi
-          
-          echo "Using image reference for fresh scan: ${IMAGE_FOR_SCAN}"
+          # Function to normalize and canonicalize SBOM for comparison
+          # Removes dynamic fields and sorts all keys recursively for consistent comparison
+          normalize_sbom() {
+            jq '
+              # Remove dynamic fields
+              del(.creationInfo.created) |
+              del(.documentNamespace) |
+              # Sort all keys at all levels for canonical form
+              . as $root |
+              ($root | keys_unsorted) as $keys |
+              reduce $keys[] as $key ({}; 
+                . + {($key): (
+                  if $root[$key] | type == "array" then
+                    $root[$key] | map(
+                      if type == "object" then
+                        . as $obj |
+                        ($obj | keys_unsorted) as $objkeys |
+                        reduce $objkeys[] as $objkey ({}; 
+                          . + {($objkey): $obj[$objkey]}
+                        ) | to_entries | sort_by(.key) | from_entries
+                      else . end
+                    )
+                  elif $root[$key] | type == "object" then
+                    ($root[$key] | to_entries | sort_by(.key) | from_entries)
+                  else
+                    $root[$key]
+                  end
+                )}
+              ) |
+              to_entries | sort_by(.key) | from_entries
+            ' "$1"
+          }
 
-          # Generate fresh SBOM from image (using same method as original generation)
-          # IMPORTANT: Redirect stderr to /dev/null to avoid mixing error messages with JSON
-          echo "Generating fresh SBOM from image..."
-          if ! trivy image --format spdx-json "${IMAGE_FOR_SCAN}" 2>/dev/null > /tmp/true-sbom.json; then
-            echo "ERROR: trivy failed to generate SBOM"
-            echo "Trivy error output:"
-            trivy image --format spdx-json "${IMAGE_FOR_SCAN}" 2>&1 | head -20
-            exit 1
-          fi
-          
-          FRESH_SBOM_SIZE=$(wc -c < /tmp/true-sbom.json)
-          echo "Fresh SBOM file size: ${FRESH_SBOM_SIZE} bytes"
-          
-          # Verify the fresh SBOM is valid JSON
-          if ! jq empty /tmp/true-sbom.json 2>/dev/null; then
-            echo "ERROR: Fresh SBOM is not valid JSON"
-            echo "First 20 lines of fresh SBOM:"
-            head -20 /tmp/true-sbom.json
-            exit 1
-          fi
+          # Normalize both SBOMs
+          normalize_sbom /tmp/generated-sbom.json > /tmp/generated-sbom-normalized.json
+          normalize_sbom /tmp/source-sbom.json > /tmp/source-sbom-normalized.json
 
-          # --- Copilot take the wheel end ---
+          # Compare the normalized, canonicalized SBOMs
+          GENERATED_HASH=$(sha256sum /tmp/generated-sbom-normalized.json | awk '{print $1}')
+          SOURCE_HASH=$(sha256sum /tmp/source-sbom-normalized.json | awk '{print $1}')
 
-          # Normalize both SBOMs by removing dynamic fields (timestamp and UUID in namespace)
-          jq 'del(.creationInfo.created) | del(.documentNamespace)' /tmp/true-sbom.json > /tmp/true-sbom-normalized.json
-          jq 'del(.creationInfo.created) | del(.documentNamespace)' "${SBOM_FILE}" > /tmp/expected-sbom-normalized.json
+          echo "Generated SBOM hash: $GENERATED_HASH"
+          echo "Source SBOM hash: $SOURCE_HASH"
 
-          # Compare normalized SBOMs
-          if diff -q /tmp/true-sbom-normalized.json /tmp/expected-sbom-normalized.json > /dev/null 2>&1; then
-            echo "SBOM matches image contents (excluding dynamic fields)"
+          if [ "$GENERATED_HASH" = "$SOURCE_HASH" ]; then
+            echo "✓ SBOM matches image contents (excluding dynamic fields)"
             echo "sbom-matches=true" >> $GITHUB_OUTPUT
           else
-            echo "SBOM does NOT match image contents"
-            echo "Differences found (first 100 lines):"
-            diff /tmp/true-sbom-normalized.json /tmp/expected-sbom-normalized.json | head -100 || true
+            echo "✗ SBOM does NOT match image contents"
+            echo "Differences found:"
+            diff /tmp/generated-sbom-normalized.json /tmp/source-sbom-normalized.json || true
             echo "sbom-matches=false" >> $GITHUB_OUTPUT
             exit 1
           fi
@@ -291,7 +279,7 @@ jobs:
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Scanning SBOM of image: ${IMAGE}"
-          trivy image --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
+          trivy image --sbom-sources oci --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
           echo "Finished SBOM scan, results:"
           cat trivy-results-${{ matrix.chart }}.sarif
 
