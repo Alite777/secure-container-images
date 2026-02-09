@@ -117,26 +117,55 @@ jobs:
         continue-on-error: true
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
+          TRUST_FILE=".github/cosign-trust.yaml"
           echo "Verifying signature for: ${IMAGE}"
-          
-          # Extract digest if present
-          if [[ "$IMAGE" == *"@"* ]]; then
-            DIGEST="${IMAGE##*@}"
-            echo "Using digest: ${DIGEST}"
+
+          if [ ! -f "$TRUST_FILE" ]; then
+            echo "Trust config not found: ${TRUST_FILE}"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
-          echo "skipped digest extraction"
 
-          # Attempt keyless verification with Sigstore
-          COSIGN_OUTPUT=$(cosign verify "${IMAGE}" --certificate-oidc-issuer-regexp=".*" --certificate-identity-regexp=".*" 2>&1)
-          echo "$COSIGN_OUTPUT"
-          echo "attempted to read output"
+          mapfile -t ISSUERS < <(yq e '.trusted.oidc_issuers[]' "$TRUST_FILE")
+          mapfile -t IDENTITIES < <(yq e '.trusted.identities[]' "$TRUST_FILE")
 
-          if echo "$COSIGN_OUTPUT" | grep -q "The following checks were performed"; then
+          if [ "${#ISSUERS[@]}" -eq 0 ] || [ "${#IDENTITIES[@]}" -eq 0 ]; then
+            echo "No trusted issuers or identities configured in ${TRUST_FILE}"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VERIFIED=false
+          MATCHED_ISSUER=""
+          MATCHED_IDENTITY=""
+          LAST_ERROR=""
+
+          for issuer in "${ISSUERS[@]}"; do
+            for identity in "${IDENTITIES[@]}"; do
+              echo "Trying issuer: ${issuer}"
+              echo "Trying identity: ${identity}"
+
+              if cosign verify "${IMAGE}" --certificate-oidc-issuer="${issuer}" --certificate-identity="${identity}" > /tmp/cosign-verify.json 2> /tmp/cosign-verify.err; then
+                VERIFIED=true
+                MATCHED_ISSUER="${issuer}"
+                MATCHED_IDENTITY="${identity}"
+                break 2
+              else
+                LAST_ERROR=$(cat /tmp/cosign-verify.err)
+              fi
+            done
+          done
+
+          if [ "$VERIFIED" = "true" ]; then
             echo "Signature verified with Sigstore keyless signing"
+            echo "matched-issuer=${MATCHED_ISSUER}" >> $GITHUB_OUTPUT
+            echo "matched-identity=${MATCHED_IDENTITY}" >> $GITHUB_OUTPUT
             echo "verified=true" >> $GITHUB_OUTPUT
           else
-            echo "Signature verification failed"
-            echo "Cosign output: $COSIGN_OUTPUT"
+            echo "Signature verification failed for all trusted issuers/identities"
+            if [ -n "$LAST_ERROR" ]; then
+              echo "Last error: $LAST_ERROR"
+            fi
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
 
