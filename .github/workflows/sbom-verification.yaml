@@ -62,14 +62,6 @@ jobs:
       - name: Install yq
         uses: frenck/action-setup-yq@v1 # Installs yq, a tool that can read yaml files
       
-      - name: Install trivy
-        run: |
-          sudo apt-get install wget gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install trivy
-
       - name: Login to GHCR for private images
         uses: docker/login-action@v3
         with:
@@ -173,6 +165,11 @@ jobs:
 
             jq -s -r '.[0].payload' /tmp/cosign-attestation.json | base64 -d | jq . > sbom-${{ matrix.chart }}.spdx.json
             echo "sbom-file=sbom-${{ matrix.chart }}.spdx.json" >> $GITHUB_OUTPUT
+            
+            # Extract trivy version from SBOM
+            TRIVY_VERSION=$(jq -r '.creationInfo.creators[] | select(startswith("Tool: trivy-")) | sub("Tool: trivy-"; "")' sbom-${{ matrix.chart }}.spdx.json)
+            echo "trivy-version=${TRIVY_VERSION}" >> $GITHUB_OUTPUT
+            echo "Detected Trivy version from SBOM: ${TRIVY_VERSION}"
           else
             echo "SBOM Signature verification failed for all trusted issuers/identities"
             if [ -n "$LAST_ERROR" ]; then
@@ -180,6 +177,17 @@ jobs:
             fi
             echo "verified=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Install matching Trivy version
+        if: steps.verify-sbom.outputs.verified == 'true'
+        run: |
+          TRIVY_VERSION="${{ steps.verify-sbom.outputs.trivy-version }}"
+          echo "Installing Trivy version ${TRIVY_VERSION} to match SBOM generation"
+          
+          wget -qO /tmp/trivy.deb "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
+          sudo dpkg -i /tmp/trivy.deb
+          
+          trivy --version
 
       - name: Report verification result
         if: always()
