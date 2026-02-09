@@ -211,8 +211,48 @@ jobs:
           SBOM_FILE="${{ steps.verify-sbom.outputs.sbom-file }}"
           echo "Checking if SBOM matches image contents for ${IMAGE}"
 
+          # --- Copilot take the wheel start ---
+          
+          echo "Using signed SBOM from: ${SBOM_FILE}"
+
+          # Verify signed SBOM file exists and has content
+          if [ ! -f "${SBOM_FILE}" ]; then
+            echo "ERROR: Signed SBOM file not found: ${SBOM_FILE}"
+            exit 1
+          fi
+          
+          SIGNED_SBOM_SIZE=$(wc -c < "${SBOM_FILE}")
+          echo "Signed SBOM file size: ${SIGNED_SBOM_SIZE} bytes"
+
+          # IMPORTANT: Use image reference WITHOUT tag (only digest) to match original generation
+          # Original generation likely used: image@sha256:... (no tag)
+          if [[ "$IMAGE" == *"@sha256:"* ]]; then
+            # Extract registry and repo without tag, then add sha256
+            IMAGE_FOR_SCAN=$(echo "$IMAGE" | sed -E 's/:([^@]*)?@sha256:/@sha256:/')
+            # Remove any :latest or tag before the @
+            IMAGE_FOR_SCAN=$(echo "$IMAGE_FOR_SCAN" | sed -E 's/:latest@sha256:/@sha256:/')
+          else
+            IMAGE_FOR_SCAN="$IMAGE"
+          fi
+          
+          echo "Using image reference for fresh scan: ${IMAGE_FOR_SCAN}"
+
           # Generate fresh SBOM from image (using same method as original generation)
-          trivy image --format spdx-json ${IMAGE} > /tmp/true-sbom.json 2>/dev/null
+          echo "Generating fresh SBOM from image..."
+          trivy image --format spdx-json "${IMAGE_FOR_SCAN}" > /tmp/true-sbom.json 2>&1
+          
+          FRESH_SBOM_SIZE=$(wc -c < /tmp/true-sbom.json)
+          echo "Fresh SBOM file size: ${FRESH_SBOM_SIZE} bytes"
+          
+          # Check if fresh SBOM has content
+          if [ "$FRESH_SBOM_SIZE" -lt 100 ]; then
+            echo "ERROR: Fresh SBOM is suspiciously small (< 100 bytes)"
+            echo "Fresh SBOM content:"
+            cat /tmp/true-sbom.json
+            exit 1
+          fi
+
+          # --- Copilot take the wheel end ---
 
           # Normalize both SBOMs by removing dynamic fields (timestamp and UUID in namespace)
           jq 'del(.creationInfo.created) | del(.documentNamespace)' /tmp/true-sbom.json > /tmp/true-sbom-normalized.json
@@ -224,8 +264,8 @@ jobs:
             echo "sbom-matches=true" >> $GITHUB_OUTPUT
           else
             echo "SBOM does NOT match image contents"
-            echo "Differences found:"
-            diff /tmp/true-sbom-normalized.json /tmp/expected-sbom-normalized.json || true
+            echo "Differences found (first 100 lines):"
+            diff /tmp/true-sbom-normalized.json /tmp/expected-sbom-normalized.json | head -100 || true
             echo "sbom-matches=false" >> $GITHUB_OUTPUT
             exit 1
           fi
