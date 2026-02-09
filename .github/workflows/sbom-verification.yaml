@@ -211,8 +211,8 @@ jobs:
           SBOM_FILE="${{ steps.verify-sbom.outputs.sbom-file }}"
           echo "Checking if SBOM matches image contents for ${IMAGE}"
 
-          # Generate fresh SBOM from image
-          trivy image --sbom-sources oci --format spdx-json ${IMAGE} > /tmp/true-sbom.json 2>/dev/null
+          # Generate fresh SBOM from image (using same method as original generation)
+          trivy image --format spdx-json ${IMAGE} > /tmp/true-sbom.json 2>/dev/null
 
           # Normalize both SBOMs by removing dynamic fields (timestamp and UUID in namespace)
           jq 'del(.creationInfo.created) | del(.documentNamespace)' /tmp/true-sbom.json > /tmp/true-sbom-normalized.json
@@ -237,7 +237,7 @@ jobs:
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
           echo "Scanning SBOM of image: ${IMAGE}"
-          trivy image --sbom-sources oci --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
+          trivy image --format sarif --output trivy-results-${{ matrix.chart }}.sarif --severity CRITICAL,HIGH ${IMAGE}
           echo "Finished SBOM scan, results:"
           cat trivy-results-${{ matrix.chart }}.sarif
 
