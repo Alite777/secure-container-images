@@ -194,18 +194,33 @@ jobs:
             exit 1
           fi
 
-      # - name: Scan SBOMs
-      #   id: trivy-sbom-scan
-      #   if: steps.verify-sbom.outputs.verified == 'true'
-      #   uses: aquasecurity/trivy-action@0.28.0
-      #   continue-on-error: true
-      #   with:
-      #     scan-type: 'sbom'
-      #     scan-ref: ${{ steps.verify-sbom.outputs.sbom-file }}
-      #     format: 'sarif'
-      #     output: 'trivy-results-${{ matrix.chart }}.sarif'
-      #     severity: 'CRITICAL,HIGH'
-      #     exit-code: '1'
+      - name: Check if SBOM matches image contents
+        id: check-sbom
+        if: steps.verify-sbom.outputs.verified == 'true'
+        continue-on-error: true
+        run: |
+          IMAGE="${{ steps.image.outputs.image }}"
+          SBOM_FILE="${{ steps.verify-sbom.outputs.sbom-file }}"
+          echo "Checking if SBOM matches image contents for ${IMAGE}"
+
+          # Generate fresh SBOM from image
+          trivy image --sbom-sources oci --format spdx-json ${IMAGE} > /tmp/true-sbom.json 2>/dev/null
+
+          # Normalize both SBOMs by removing dynamic fields (timestamp and UUID in namespace)
+          jq 'del(.creationInfo.created) | del(.documentNamespace)' /tmp/true-sbom.json > /tmp/true-sbom-normalized.json
+          jq 'del(.creationInfo.created) | del(.documentNamespace)' "${SBOM_FILE}" > /tmp/expected-sbom-normalized.json
+
+          # Compare normalized SBOMs
+          if diff -q /tmp/true-sbom-normalized.json /tmp/expected-sbom-normalized.json > /dev/null 2>&1; then
+            echo "SBOM matches image contents (excluding dynamic fields)"
+            echo "sbom-matches=true" >> $GITHUB_OUTPUT
+          else
+            echo "SBOM does NOT match image contents"
+            echo "Differences found:"
+            diff /tmp/true-sbom-normalized.json /tmp/expected-sbom-normalized.json || true
+            echo "sbom-matches=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
       
       - name: Scan SBOMs
         id: trivy-sbom-scan
