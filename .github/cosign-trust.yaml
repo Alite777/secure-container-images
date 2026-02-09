@@ -8,7 +8,6 @@ trusted:
     - https://oidc.eks.eu-central-1.amazonaws.com/id/EXAMPLE1234567890
 
   identities:
-    - https://github.com/OWNER/REPO/.github/workflows/cosign-verification.yaml@refs/heads/main
-    - https://github.com/OWNER/REPO/.github/workflows/sbom-verification.yaml@refs/heads/main
-    - https://github.com/OWNER/REPO/.github/workflows/release.yaml@refs/tags/v1.0.0
-    - https://github.com/OWNER/REPO/.github/workflows/build.yaml@refs/pull/123/merge
+    - https://github.com/alite777/seucure-containter-images/.github/workflows/cosign-verification.yaml@refs/heads/main
+    - https://github.com/alite777/seucure-containter-images/.github/workflows/sbom-verification.yaml@refs/heads/main
+    - alexander_maximow@web.de
