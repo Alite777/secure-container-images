@@ -230,7 +230,7 @@ jobs:
                     .creationInfo.created,
                     .documentNamespace,
                     .SPDXID,
-                    .LayerDigest,
+                    .attributionTexts.LayerDigest,
                     .RepoDigest,
                     .RepoTag,
                     .name  # Container image names vary by reference (tag vs digest)
@@ -247,9 +247,6 @@ jobs:
           normalize_sbom /tmp/generated-sbom.json > /tmp/generated-sbom-normalized.json
           echo "Normalizing source SBOM..."
           normalize_sbom /tmp/source-sbom.json > /tmp/source-sbom-normalized.json
-
-          cat /tmp/generated-sbom-normalized.json | head -200
-          cat /tmp/source-sbom-normalized.json | head -200
 
           # Compare the normalized SBOMs using hash for robustness
           GENERATED_HASH=$(sha256sum /tmp/generated-sbom-normalized.json | awk '{print $1}')
