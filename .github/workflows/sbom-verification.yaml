@@ -205,7 +205,6 @@ jobs:
       - name: Check if SBOM matches image contents
         id: check-sbom
         if: steps.verify-sbom.outputs.verified == 'true'
-        continue-on-error: true
         run: |
           IMAGE="${{ steps.image.outputs.image }}"
           SBOM_FILE="${{ steps.verify-sbom.outputs.sbom-file }}"
