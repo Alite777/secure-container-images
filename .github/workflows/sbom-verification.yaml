@@ -231,7 +231,8 @@ jobs:
                     .creationInfo.created,
                     .documentNamespace,
                     .SPDXID,
-                    .name  # Container image names vary by reference (tag vs digest)
+                    .name,  # Container image names vary by reference (tag vs digest)
+                    .relationships  # Relationships reference dynamic SPDXIDs, not relevant for content validation
                   ) |
                   # Filter attributionTexts array to remove dynamic entries
                   if .attributionTexts then
