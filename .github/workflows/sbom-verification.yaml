@@ -248,6 +248,9 @@ jobs:
           echo "Normalizing source SBOM..."
           normalize_sbom /tmp/source-sbom.json > /tmp/source-sbom-normalized.json
 
+          cat /tmp/generated-sbom-normalized.json | head -200
+          cat /tmp/source-sbom-normalized.json | head -200
+
           # Compare the normalized SBOMs using hash for robustness
           GENERATED_HASH=$(sha256sum /tmp/generated-sbom-normalized.json | awk '{print $1}')
           SOURCE_HASH=$(sha256sum /tmp/source-sbom-normalized.json | awk '{print $1}')
