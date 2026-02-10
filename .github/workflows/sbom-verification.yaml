@@ -226,15 +226,23 @@ jobs:
               # Walk through entire structure and remove dynamic fields
               walk(
                 if type == "object" then
+                  # Remove scalar dynamic fields
                   del(
                     .creationInfo.created,
                     .documentNamespace,
                     .SPDXID,
-                    .attributionTexts.LayerDigest,
-                    .RepoDigest,
-                    .RepoTag,
                     .name  # Container image names vary by reference (tag vs digest)
                   ) |
+                  # Filter attributionTexts array to remove dynamic entries
+                  if .attributionTexts then
+                    .attributionTexts |= map(select(
+                      startswith("LayerDigest:") or 
+                      startswith("LayerDiffID:") or 
+                      startswith("RepoDigest:") or 
+                      startswith("RepoTag:") or
+                      startswith("PkgID:") | not
+                    ))
+                  else . end |
                   # Sort all keys alphabetically at this level
                   to_entries | sort_by(.key) | from_entries
                 else . end
