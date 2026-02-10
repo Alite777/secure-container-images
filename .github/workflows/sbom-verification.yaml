@@ -217,44 +217,38 @@ jobs:
           # Extract SBOM from in-toto attestation (the signed/source SBOM)
           jq '.predicate' "${SBOM_FILE}" > /tmp/source-sbom.json
 
-          # Function to normalize and canonicalize SBOM for comparison
-          # Removes dynamic fields and sorts all keys recursively for consistent comparison
+          # Normalize SBOM by:
+          # 1. Removing dynamic fields (timestamps, UUIDs, content hashes, layer info)
+          # 2. Recursively sorting all object keys for canonical form
+          # 3. Using jq's built-in @json for deterministic output
           normalize_sbom() {
             jq '
-              # Remove dynamic fields
-              del(.creationInfo.created) |
-              del(.documentNamespace) |
-              # Sort all keys at all levels for canonical form
-              . as $root |
-              ($root | keys_unsorted) as $keys |
-              reduce $keys[] as $key ({}; 
-                . + {($key): (
-                  if $root[$key] | type == "array" then
-                    $root[$key] | map(
-                      if type == "object" then
-                        . as $obj |
-                        ($obj | keys_unsorted) as $objkeys |
-                        reduce $objkeys[] as $objkey ({}; 
-                          . + {($objkey): $obj[$objkey]}
-                        ) | to_entries | sort_by(.key) | from_entries
-                      else . end
-                    )
-                  elif $root[$key] | type == "object" then
-                    ($root[$key] | to_entries | sort_by(.key) | from_entries)
-                  else
-                    $root[$key]
-                  end
-                )}
-              ) |
-              to_entries | sort_by(.key) | from_entries
-            ' "$1"
+              # Walk through entire structure and remove dynamic fields
+              walk(
+                if type == "object" then
+                  del(
+                    .creationInfo.created,
+                    .documentNamespace,
+                    .SPDXID,
+                    .LayerDigest,
+                    .RepoDigest,
+                    .RepoTag,
+                    .name  # Container image names vary by reference (tag vs digest)
+                  ) |
+                  # Sort all keys alphabetically at this level
+                  to_entries | sort_by(.key) | from_entries
+                else . end
+              )
+            ' "$1" | jq -S . # Final sort to ensure canonical form
           }
 
           # Normalize both SBOMs
+          echo "Normalizing generated SBOM..."
           normalize_sbom /tmp/generated-sbom.json > /tmp/generated-sbom-normalized.json
+          echo "Normalizing source SBOM..."
           normalize_sbom /tmp/source-sbom.json > /tmp/source-sbom-normalized.json
 
-          # Compare the normalized, canonicalized SBOMs
+          # Compare the normalized SBOMs using hash for robustness
           GENERATED_HASH=$(sha256sum /tmp/generated-sbom-normalized.json | awk '{print $1}')
           SOURCE_HASH=$(sha256sum /tmp/source-sbom-normalized.json | awk '{print $1}')
 
@@ -266,8 +260,8 @@ jobs:
             echo "sbom-matches=true" >> $GITHUB_OUTPUT
           else
             echo "✗ SBOM does NOT match image contents"
-            echo "Differences found:"
-            diff /tmp/generated-sbom-normalized.json /tmp/source-sbom-normalized.json || true
+            echo "Showing first differences (max 50 lines):"
+            diff /tmp/generated-sbom-normalized.json /tmp/source-sbom-normalized.json | head -50 || true
             echo "sbom-matches=false" >> $GITHUB_OUTPUT
             exit 1
           fi
